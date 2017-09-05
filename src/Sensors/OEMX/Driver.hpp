@@ -118,14 +118,13 @@ namespace Sensors
       void
       getInfoOfCTD()
       {
-        bool breakWhile = false;
         char usart_rec[2];
 
-        while(!breakWhile && !m_task->isStopping())
+        while(!m_task->isStopping())
         {
           if (sendCommand("\r", "\r\n"))
           {
-            breakWhile = true;
+            break;
           }
           else
           {
@@ -134,13 +133,11 @@ namespace Sensors
           }
         }
 
-        breakWhile = false;
-
         m_uart->writeString("display options\r\r");
         std::string txtRec;
         bool isFristTerminator = true;
 
-        while(!breakWhile && !m_task->isStopping())
+        while(!m_task->isStopping())
         {
           if (m_poll.poll(m_timeout_uart))
             if (m_poll.wasTriggered(*m_uart))
@@ -153,7 +150,7 @@ namespace Sensors
                 if (isFristTerminator)
                   isFristTerminator = false;
                 else
-                  breakWhile = true;
+                  break;
               }
             }
         }
@@ -206,7 +203,7 @@ namespace Sensors
           return false;
 
         m_ctdData.m_salinity = UNESCO1983::computeSalinity(
-            m_ctdData.m_conductivity + 0.5, m_ctdData.m_pressure,
+            m_ctdData.m_conductivity, m_ctdData.m_pressure,
             m_ctdData.m_temperature);
 
         m_ctdData.m_soundSpeed = UNESCO1983::computeSoundSpeed(
