@@ -39,8 +39,12 @@ namespace Sensors
   {
     using DUNE_NAMESPACES;
 
-    static const float c_delay_startup = 5.0f;
+    static const float c_delay_startup = 1.0f;
     static const float c_timeout_uart = 1.0f;
+    //! Sensor options.
+    static const std::string c_s_options[] = { "Conductivity", "SoundSpeed",
+                                               "Temperature", "Pressure",
+                                               "Turbidity" };
 
     struct Arguments
     {
@@ -58,6 +62,22 @@ namespace Sensors
       std::vector<std::string> secondary_mount;
     };
 
+    struct SensorStateData
+    {
+      //! Conductivity
+      bool haveConductivity;
+      //! SoundSpeed
+      bool haveSoundSpeed;
+      //! Temperature
+      bool haveTemperature;
+      //! Pressure
+      bool havePressure;
+      //! Turbidity
+      bool haveTurbidity;
+      //! Salinity
+      bool haveSalinity;
+    };
+
     struct Task: public DUNE::Tasks::Task
     {
       //! Serial port handle.
@@ -66,6 +86,8 @@ namespace Sensors
       Poll m_poll;
       //! Task arguments
       Arguments m_args;
+      //! Sensor data state
+      SensorStateData m_sdstate;
       //! Driver of CTD
       DriverOEMX *m_driver;
       //! Watchdog.
@@ -80,8 +102,10 @@ namespace Sensors
       float m_conductivity;
       //! SoundSpeed
       float m_soundSpeed;
+      //! Turbidity
+      float m_turbidity;
       //! Number of sensors plug in CTD
-      size_t m_numberSensors;
+      std::size_t m_numberSensors;
 
       //! Constructor.
       //! @param[in] name task name.
@@ -95,6 +119,7 @@ namespace Sensors
         m_pressure(0),
         m_conductivity(0),
         m_soundSpeed(0),
+        m_turbidity(0),
         m_numberSensors(0)
       {
         param("Serial Port - Device", m_args.uart_dev)
@@ -156,7 +181,8 @@ namespace Sensors
           m_uart->setCanonicalInput(true);
           m_uart->flush();
           m_poll.add(*m_uart);
-          m_driver = new DriverOEMX(this, m_uart, m_poll, m_args.primary_mount.size(), m_args.secondary_mount.size());
+          m_driver = new DriverOEMX(this, m_uart, m_poll);
+          m_numberSensors = m_args.primary_mount.size() + m_args.secondary_mount.size();
         }
         catch (std::runtime_error& e)
         {
@@ -168,6 +194,7 @@ namespace Sensors
       void
       onResourceInitialization(void)
       {
+        resetStateDataSensor();
         Delay::wait(c_delay_startup);
         getInfoOfCTD();
 
@@ -190,25 +217,103 @@ namespace Sensors
       }
 
       void
-      getInfoOfCTD()
+      resetStateDataSensor(void)
       {
-        m_numberSensors = m_args.primary_mount.size() + m_args.secondary_mount.size();
-
-        inf("P: %d | S: %d | T: %d", (int)m_args.primary_mount.size(), (int)m_args.secondary_mount.size(), (int)m_numberSensors);
-
-        m_driver->getInfoOfCTD();
-
-        inf("Firmware version: %s  SN: %s", m_driver->m_ctdData.version.c_str(),
-            m_driver->m_ctdData.serialCTD.c_str());
-
-        if(m_args.primary_mount.size() > 0)
-          inf("Primary Mount: %s", m_driver->m_ctdData.primaryMount.c_str());
-        if(m_args.secondary_mount.size() > 0)
-          inf("Secondary Mount: %s", m_driver->m_ctdData.secondayMount[0].c_str());
-        if(m_args.secondary_mount.size() > 1)
-          inf("Secondary Mount: %s", m_driver->m_ctdData.secondayMount[1].c_str());
+        m_sdstate.haveConductivity = false;
+        m_sdstate.havePressure = false;
+        m_sdstate.haveSalinity = false;
+        m_sdstate.haveSoundSpeed = false;
+        m_sdstate.haveTemperature = false;
+        m_sdstate.haveTurbidity = false;
       }
 
+      void
+      getInfoOfCTD()
+      {
+        m_driver->getInfoOfCTD();
+        inf("CTD Info: %s", m_driver->m_ctdData.ctdInfo.c_str());
+        inf("Primary Mount Info: %s", m_driver->m_ctdData.primaryInfo.c_str());
+        inf("Secondary Mount Info: %s", m_driver->m_ctdData.secondaryInfo.c_str());
+      }
+
+      void formateDataCTD(void)
+      {
+        std::size_t cntIndex = 0;
+        for (std::size_t i = 0; i < m_args.primary_mount.size(); i++)
+        {
+          if (m_args.primary_mount[i].compare(c_s_options[0]) == 0)
+          {
+            m_conductivity = m_driver->m_ctdData.dataReceived[i];
+            m_sdstate.haveConductivity = true;
+            cntIndex++;
+          }
+          else if (m_args.primary_mount[i].compare(c_s_options[1]) == 0)
+          {
+            m_soundSpeed = m_driver->m_ctdData.dataReceived[i];
+            m_sdstate.haveSoundSpeed = true;
+            cntIndex++;
+          }
+          else if (m_args.primary_mount[i].compare(c_s_options[2]) == 0)
+          {
+            m_temperature = m_driver->m_ctdData.dataReceived[i];
+            m_sdstate.haveTemperature = true;
+            cntIndex++;
+          }
+        }
+
+        for (std::size_t i = 0; i < m_args.secondary_mount.size(); i++)
+        {
+          if (m_args.secondary_mount[i].compare(c_s_options[3]) == 0)
+          {
+            m_pressure = m_driver->m_ctdData.dataReceived[cntIndex + i];
+            m_sdstate.havePressure = true;
+          }
+          else if (m_args.secondary_mount[i].compare(c_s_options[4]) == 0)
+          {
+            m_turbidity = m_driver->m_ctdData.dataReceived[cntIndex + i];
+            m_sdstate.haveTurbidity = true;
+          }
+          else if (m_args.secondary_mount[i].compare(c_s_options[2]) == 0)
+          {
+            m_temperature = m_driver->m_ctdData.dataReceived[cntIndex + i];
+            m_sdstate.haveTemperature = true;
+          }
+        }
+
+        if(m_sdstate.haveConductivity && m_sdstate.havePressure && m_sdstate.haveTemperature)
+        {
+          m_salinity = UNESCO1983::computeSalinity(m_conductivity, m_pressure, m_temperature);
+          if(m_salinity < 0)
+            m_salinity = 0;
+          m_sdstate.haveSalinity = true;
+        }
+
+        if(m_sdstate.haveSalinity && m_sdstate.havePressure && m_sdstate.haveTemperature && !m_sdstate.haveSoundSpeed)
+        {
+          m_soundSpeed = UNESCO1983::computeSoundSpeed(m_salinity, m_pressure, m_temperature);
+          m_sdstate.haveSoundSpeed = true;
+        }
+      }
+
+      void
+      dispatchData(void)
+      {
+        if (m_sdstate.haveConductivity)
+          inf("Conductivity: %f", m_conductivity);
+        if (m_sdstate.havePressure)
+          inf("Pressure: %f", m_pressure);
+        if (m_sdstate.haveSoundSpeed)
+          inf("SoundSpeed: %f", m_soundSpeed);
+        if (m_sdstate.haveTemperature)
+          inf("Temperature: %f", m_temperature);
+        if (m_sdstate.haveSalinity)
+          inf("Salinity: %f", m_salinity);
+        if (m_sdstate.haveTurbidity)
+          inf("Turbidity: %f", m_turbidity);
+
+        war(" ");
+        resetStateDataSensor();
+      }
 
       //! Main loop.
       void
@@ -216,7 +321,6 @@ namespace Sensors
       {
         while (!stopping())
         {
-          //waitForMessages(1.0);
           consumeMessages();
 
           if (m_wdog.overflow())
@@ -230,11 +334,8 @@ namespace Sensors
 
           if(m_driver->haveNewData(m_numberSensors))
           {
-            inf("C: %f | P: %f | T: %f | S: %f | V: %f",
-                                m_driver->m_ctdData.m_conductivity, m_driver->m_ctdData.m_pressure,
-                                m_driver->m_ctdData.m_temperature, m_driver->m_ctdData.m_salinity,
-                                m_driver->m_ctdData.m_soundSpeed);
-
+            formateDataCTD();
+            dispatchData();
             setEntityState(IMC::EntityState::ESTA_NORMAL, Status::CODE_ACTIVE);
             m_wdog.reset();
           }
