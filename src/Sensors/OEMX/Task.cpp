@@ -156,7 +156,7 @@ namespace Sensors
           m_uart->setCanonicalInput(true);
           m_uart->flush();
           m_poll.add(*m_uart);
-          m_driver = new DriverOEMX(this, m_uart, m_poll);
+          m_driver = new DriverOEMX(this, m_uart, m_poll, m_args.primary_mount.size(), m_args.secondary_mount.size());
         }
         catch (std::runtime_error& e)
         {
@@ -192,15 +192,21 @@ namespace Sensors
       void
       getInfoOfCTD()
       {
-        size_t cntSensorsPrimaryMount = m_args.primary_mount.size();
-        size_t cntSensorsSecondaryMount = m_args.secondary_mount.size();
-
         m_numberSensors = m_args.primary_mount.size() + m_args.secondary_mount.size();
 
-        inf("P: %d | S: %d | T: %d", (int)cntSensorsPrimaryMount, (int)cntSensorsSecondaryMount, (int)m_numberSensors);
+        inf("P: %d | S: %d | T: %d", (int)m_args.primary_mount.size(), (int)m_args.secondary_mount.size(), (int)m_numberSensors);
 
         m_driver->getInfoOfCTD();
 
+        inf("Firmware version: %s  SN: %s", m_driver->m_ctdData.version.c_str(),
+            m_driver->m_ctdData.serialCTD.c_str());
+
+        if(m_args.primary_mount.size() > 0)
+          inf("Primary Mount: %s", m_driver->m_ctdData.primaryMount.c_str());
+        if(m_args.secondary_mount.size() > 0)
+          inf("Secondary Mount: %s", m_driver->m_ctdData.secondayMount[0].c_str());
+        if(m_args.secondary_mount.size() > 1)
+          inf("Secondary Mount: %s", m_driver->m_ctdData.secondayMount[1].c_str());
       }
 
 

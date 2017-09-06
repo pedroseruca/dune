@@ -60,17 +60,33 @@ namespace Sensors
         float m_conductivity;
         //! SoundSpeed
         float m_soundSpeed;
+        //! Version of firmware in CTD
+        std::string version;
+        //! Serial number of CTD
+        std::string serialCTD;
+        //! Primary mount CTD
+        std::string primaryMount;
+        //! Secondary mount CTD
+        std::string secondayMount[2];
       };
 
+      //! Serial port
       SerialPort* m_uart;
+      //! Interrupt/Poll for serial port
       Poll m_poll;
+      //! Number of sensores in Primary mount
+      size_t m_numberSensorPrimary;
+      //! Number of sensores in Secondary mount
+      size_t m_numberSensorSecondary;
 
-      DriverOEMX(DUNE::Tasks::Task* task, SerialPort* uart, Poll poll):
+      DriverOEMX(DUNE::Tasks::Task* task, SerialPort* uart, Poll poll, int numberSensorPrimary, int numberSensorSecondary):
         m_task(task)
       {
         m_uart = uart;
         m_poll = poll;
         m_timeout_uart = 1.0f;
+        m_numberSensorPrimary = numberSensorPrimary;
+        m_numberSensorSecondary = numberSensorSecondary;
       }
 
       ~DriverOEMX(void)
@@ -167,8 +183,83 @@ namespace Sensors
         }
         token[cnt] = txtRec;
 
-        for(size_t i = 0; i <=3; i++)
-          m_task->inf("\n%s\n", token[i].c_str());
+        getFirmwareVersion(token[0]);
+        getInfoPrimaryMount(token[1]);
+        getInfoSecondaryMount(token[2]);
+      }
+
+      void
+      getFirmwareVersion(std::string text)
+      {
+        m_task->spew("%s", text.c_str());
+        std::string identifier = "Firmware=V";
+        std::size_t found = text.find(identifier);
+        m_ctdData.version = text.substr(found + identifier.size(), 6);
+        std::replace(m_ctdData.version.begin(), m_ctdData.version.end(), '\r', '\0');
+        std::replace(m_ctdData.version.begin(), m_ctdData.version.end(), '\n', '\0');
+
+        identifier = "SN=";
+        found = text.find(identifier);
+        m_ctdData.serialCTD = text.substr(found + identifier.size(), 6);
+        std::replace(m_ctdData.serialCTD.begin(), m_ctdData.serialCTD.end(), '\r', '\0');
+        std::replace(m_ctdData.serialCTD.begin(), m_ctdData.serialCTD.end(), '\n', '\0');
+      }
+
+      void
+      getInfoPrimaryMount(std::string text)
+      {
+        if(m_numberSensorPrimary > 0)
+        {
+          m_task->spew("%s", text.c_str());
+
+          std::string identifier = "SensorName=";
+          std::size_t found = text.find(identifier);
+          m_ctdData.primaryMount = text.substr(found + identifier.size(),
+                                               text.size() - found);
+          std::replace(m_ctdData.primaryMount.begin(),
+                       m_ctdData.primaryMount.end(), '\r', ' ');
+          std::replace(m_ctdData.primaryMount.begin(),
+                       m_ctdData.primaryMount.end(), '\n', ' ');
+        }
+      }
+
+      void
+      getInfoSecondaryMount(std::string text)
+      {
+        if(m_numberSensorSecondary > 0)
+        {
+          m_task->spew("%s", text.c_str());
+
+          std::string sensorName;
+          std::string serialBoard;
+          std::string backInfo;
+          std::string identifier = "SensorName=";
+          std::size_t found = text.find(identifier);
+          backInfo = text.substr(found + identifier.size(),
+                                 text.size() - found);
+          identifier = ".X SN ";
+          found = backInfo.find(identifier);
+          sensorName = backInfo.substr(0, found - 2);
+          identifier = "BoardSN=";
+          found = text.find(identifier);
+          serialBoard = text.substr(found, identifier.size() + 6);
+          std::replace(serialBoard.begin(), serialBoard.end(), '\r', '\0');
+          std::replace(serialBoard.begin(), serialBoard.end(), '\n', '\0');
+
+          identifier = ".X SN ";
+          found = backInfo.find(identifier);
+          size_t found2 = backInfo.find(identifier, found + 6);
+
+          if (m_numberSensorSecondary > 0)
+            m_ctdData.secondayMount[0] = sensorName + " "
+                + backInfo.substr(found - 1, found2 - found) + serialBoard;
+
+          if (m_numberSensorSecondary > 1)
+            m_ctdData.secondayMount[1] = sensorName + " "
+                + backInfo.substr(found2 - 1,
+                                  backInfo.find("\r\n", found2) - found2 + 1)
+                + " " + serialBoard;
+        }
       }
 
       bool
@@ -205,6 +296,9 @@ namespace Sensors
         m_ctdData.m_salinity = UNESCO1983::computeSalinity(
             m_ctdData.m_conductivity, m_ctdData.m_pressure,
             m_ctdData.m_temperature);
+
+        if(m_ctdData.m_salinity < 0)
+          m_ctdData.m_salinity = 0;
 
         m_ctdData.m_soundSpeed = UNESCO1983::computeSoundSpeed(
             m_ctdData.m_salinity, m_ctdData.m_pressure,
