@@ -39,12 +39,17 @@ namespace Sensors
   {
     using DUNE_NAMESPACES;
 
-    static const float c_delay_startup = 1.0f;
+    static const float c_delay_startup = 4.0f;
     static const float c_timeout_uart = 1.0f;
+    static const float c_mS_to_cm = 0.1f;
+    static const float c_bar_to_hPa = 1000.0f;
+    static const float c_dbar_to_bar = 0.1f;
     //! Sensor options.
     static const std::string c_s_options[] = { "Conductivity", "SoundSpeed",
                                                "Temperature", "Pressure",
                                                "Turbidity" };
+
+    static const std::string c_calc_options[] = { "Salinity", "SoundSpeed" };
 
     struct Arguments
     {
@@ -92,6 +97,18 @@ namespace Sensors
       DriverOEMX *m_driver;
       //! Watchdog.
       Counter<double> m_wdog;
+      //! Conductivity.
+      IMC::Conductivity m_cond;
+      //! Salinity.
+      IMC::Salinity m_sali;
+      //! Sound speed.
+      IMC::SoundSpeed m_sspe;
+      //! Temperature.
+      IMC::Temperature m_temp;
+      //! Pressure.
+      IMC::Pressure m_pres;
+      //! Turbidity
+      IMC::Turbidity m_turb;
       //! Temperature
       float m_temperature;
       //! Salinity
@@ -106,6 +123,8 @@ namespace Sensors
       float m_turbidity;
       //! Number of sensors plug in CTD
       std::size_t m_numberSensors;
+      //! Timestamp.
+      double m_tstamp;
 
       //! Constructor.
       //! @param[in] name task name.
@@ -120,7 +139,8 @@ namespace Sensors
         m_conductivity(0),
         m_soundSpeed(0),
         m_turbidity(0),
-        m_numberSensors(0)
+        m_numberSensors(0),
+        m_tstamp(0)
       {
         param("Serial Port - Device", m_args.uart_dev)
         .defaultValue("")
@@ -151,22 +171,59 @@ namespace Sensors
         .description("List of sensors in secondary mount");
       }
 
-      //! Update internal state with new parameter values.
-      void
-      onUpdateParameters(void)
-      {
-      }
-
       //! Reserve entity identifiers.
       void
       onEntityReservation(void)
       {
-      }
+        resetStateDataSensor();
 
-      //! Resolve entity names.
-      void
-      onEntityResolution(void)
-      {
+        for (unsigned i = 0; i < m_args.primary_mount.size(); i++)
+        {
+          if (m_args.primary_mount[i].compare(c_s_options[0]) == 0)
+          {
+            m_cond.setSourceEntity(getEid(c_s_options[0]));
+            m_sdstate.haveConductivity = true;
+          }
+          else if (m_args.primary_mount[i].compare(c_s_options[1]) == 0)
+          {
+            m_sspe.setSourceEntity(getEid(c_s_options[1]));
+            m_sdstate.haveSoundSpeed = true;
+          }
+          else if (m_args.primary_mount[i].compare(c_s_options[2]) == 0)
+          {
+            m_temp.setSourceEntity(getEid(c_s_options[2]));
+            m_sdstate.haveTemperature = true;
+          }
+        }
+
+        for (unsigned i = 0; i < m_args.secondary_mount.size(); i++)
+        {
+          if (m_args.secondary_mount[i].compare(c_s_options[3]) == 0)
+          {
+            m_pres.setSourceEntity(getEid(c_s_options[3]));
+            m_sdstate.havePressure = true;
+          }
+          else if (m_args.secondary_mount[i].compare(c_s_options[4]) == 0)
+          {
+            m_turb.setSourceEntity(getEid(c_s_options[4]));
+            m_sdstate.haveTurbidity = true;
+          }
+          else if (m_args.secondary_mount[i].compare(c_s_options[2]) == 0)
+          {
+            m_temp.setSourceEntity(getEid(c_s_options[2]));
+            m_sdstate.haveTemperature = true;
+          }
+        }
+
+        if(m_sdstate.haveConductivity && m_sdstate.havePressure && m_sdstate.haveTemperature)
+        {
+          m_sali.setSourceEntity(getEid(c_calc_options[0]));
+          m_sdstate.haveSalinity = true;
+        }
+
+        if(m_sdstate.haveSalinity && m_sdstate.havePressure && m_sdstate.haveTemperature && !m_sdstate.haveSoundSpeed)
+          m_sspe.setSourceEntity(getEid(c_calc_options[1]));
+
       }
 
       //! Acquire resources.
@@ -216,6 +273,20 @@ namespace Sensors
         }
       }
 
+      unsigned
+      getEid(std::string label)
+      {
+        try
+        {
+          return resolveEntity(label);
+        }
+        catch (Entities::EntityDataBase::NonexistentLabel& e)
+        {
+          (void)e;
+          return reserveEntity(label);
+        }
+      }
+
       void
       resetStateDataSensor(void)
       {
@@ -243,7 +314,7 @@ namespace Sensors
         {
           if (m_args.primary_mount[i].compare(c_s_options[0]) == 0)
           {
-            m_conductivity = m_driver->m_ctdData.dataReceived[i];
+            m_conductivity = m_driver->m_ctdData.dataReceived[i] * c_mS_to_cm;
             m_sdstate.haveConductivity = true;
             cntIndex++;
           }
@@ -265,7 +336,7 @@ namespace Sensors
         {
           if (m_args.secondary_mount[i].compare(c_s_options[3]) == 0)
           {
-            m_pressure = m_driver->m_ctdData.dataReceived[cntIndex + i];
+            m_pressure = m_driver->m_ctdData.dataReceived[cntIndex + i] * c_dbar_to_bar;
             m_sdstate.havePressure = true;
           }
           else if (m_args.secondary_mount[i].compare(c_s_options[4]) == 0)
@@ -299,19 +370,49 @@ namespace Sensors
       dispatchData(void)
       {
         if (m_sdstate.haveConductivity)
-          inf("Conductivity: %f", m_conductivity);
+        {
+          debug("Conductivity: %f S/m", m_conductivity);
+          m_cond.setTimeStamp(m_tstamp);
+          m_cond.value = m_conductivity;
+          dispatch(m_cond, DF_KEEP_TIME);
+        }
         if (m_sdstate.havePressure)
-          inf("Pressure: %f", m_pressure);
+        {
+          debug("Pressure: %f Bar", m_pressure);
+          m_pres.setTimeStamp(m_tstamp);
+          m_pres.value = m_pressure * c_bar_to_hPa;
+          dispatch(m_pres, DF_KEEP_TIME);
+        }
         if (m_sdstate.haveSoundSpeed)
-          inf("SoundSpeed: %f", m_soundSpeed);
+        {
+          debug("SoundSpeed: %f m/s", m_soundSpeed);
+          m_sspe.setTimeStamp(m_tstamp);
+          m_sspe.value = m_soundSpeed;
+          dispatch(m_sspe, DF_KEEP_TIME);
+        }
         if (m_sdstate.haveTemperature)
-          inf("Temperature: %f", m_temperature);
+        {
+          debug("Temperature: %f C", m_temperature);
+          m_temp.setTimeStamp(m_tstamp);
+          m_temp.value = m_temperature;
+          dispatch(m_temp, DF_KEEP_TIME);
+        }
         if (m_sdstate.haveSalinity)
-          inf("Salinity: %f", m_salinity);
+        {
+          debug("Salinity: %f", m_salinity);
+          m_sali.setTimeStamp(m_tstamp);
+          m_sali.value = m_salinity;
+          dispatch(m_sali, DF_KEEP_TIME);
+        }
         if (m_sdstate.haveTurbidity)
-          inf("Turbidity: %f", m_turbidity);
+        {
+          debug("Turbidity: %f", m_turbidity);
+          m_turb.setTimeStamp(m_tstamp);
+          m_turb.value = m_turbidity;
+          dispatch(m_turb, DF_KEEP_TIME);
+        }
 
-        war(" ");
+        debug(" ");
         resetStateDataSensor();
       }
 
@@ -332,6 +433,7 @@ namespace Sensors
           if (!Poll::poll(*m_uart, c_timeout_uart))
             continue;
 
+          m_tstamp = Clock::getSinceEpoch();
           if(m_driver->haveNewData(m_numberSensors))
           {
             formateDataCTD();
@@ -340,7 +442,6 @@ namespace Sensors
             m_wdog.reset();
           }
         }
-
         m_driver->sendCommand("\r", ">");
       }
     };
