@@ -61,6 +61,8 @@ namespace Power
       std::string rcap_elabel;
       //! Full Capacity entity label
       std::string fcap_elabel;
+      //! State to dispatch Feul level
+      bool dispatch_fuel_level;
     };
 
     struct Task: public DUNE::Tasks::Task
@@ -138,6 +140,10 @@ namespace Power
         param("Full Capacity - Entity Label", m_args.fcap_elabel)
         .defaultValue("1")
         .description("Full Capacity A/Ah.");
+
+        param("Dispatch Fuel Level", m_args.dispatch_fuel_level)
+        .defaultValue("true")
+        .description("Dispatch Fuel Level.");
 
       }
 
@@ -266,9 +272,12 @@ namespace Power
         m_amp[2].value = m_driver->m_batManData.f_cap;
         dispatch(m_amp[2], DF_KEEP_TIME);
 
-        m_fuel.setTimeStamp(m_tstamp);
-        m_fuel.value = (m_driver->m_batManData.r_cap * 100) / m_driver->m_batManData.f_cap;
-        dispatch(m_fuel, DF_KEEP_TIME);
+        if(m_args.dispatch_fuel_level)
+        {
+          m_fuel.setTimeStamp(m_tstamp);
+          m_fuel.value = (m_driver->m_batManData.r_cap * 100) / m_driver->m_batManData.f_cap;
+          dispatch(m_fuel, DF_KEEP_TIME);
+        }
       }
 
       //! Main loop.
