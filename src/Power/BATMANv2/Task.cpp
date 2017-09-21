@@ -209,7 +209,7 @@ namespace Power
         Delay::wait(c_delay_startup);
 
         if(!m_driver->getVersionFirmware())
-          err(DTR("failed to get firmware version"));
+          war(DTR("failed to get firmware version"));
         else
           inf("Firmware Version: %s", m_driver->getFirmwareVersion().c_str());
 
