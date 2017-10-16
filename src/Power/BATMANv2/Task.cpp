@@ -276,6 +276,7 @@ namespace Power
         {
           m_fuel.setTimeStamp(m_tstamp);
           m_fuel.value = (m_driver->m_batManData.r_cap * 100) / m_driver->m_batManData.f_cap;
+          m_fuel.confidence = 100;
           dispatch(m_fuel, DF_KEEP_TIME);
         }
       }
