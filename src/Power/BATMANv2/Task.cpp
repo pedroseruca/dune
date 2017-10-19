@@ -81,6 +81,8 @@ namespace Power
       IMC::Temperature m_tmp;
       //! Voltage message
       IMC::Voltage m_volt[c_max_values_voltage];
+      //! Voltage of batteries message
+      IMC::Voltage m_bat_volt;
       //! Current message
       IMC::Current m_amp[c_max_values_current];
       //! Fuel Level message
@@ -160,6 +162,7 @@ namespace Power
           m_volt[i + 1].setSourceEntity(getEid(m_args.cell_elabels[i]));
         }
 
+        m_bat_volt.setSourceEntity(getEid("Batteries"));
         m_amp[1].setSourceEntity(getEid(m_args.rcap_elabel));
         m_amp[2].setSourceEntity(getEid(m_args.fcap_elabel));
       }
@@ -248,6 +251,10 @@ namespace Power
         m_volt[0].setTimeStamp(m_tstamp);
         m_volt[0].value = m_driver->m_batManData.voltage;
         dispatch(m_volt[0], DF_KEEP_TIME);
+
+        m_bat_volt.setTimeStamp(m_tstamp);
+        m_bat_volt.value = m_driver->m_batManData.voltage;
+        dispatch(m_bat_volt, DF_KEEP_TIME);
 
         m_amp[0].setTimeStamp(m_tstamp);
         m_amp[0].value = m_driver->m_batManData.current;
