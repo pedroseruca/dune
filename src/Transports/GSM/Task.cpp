@@ -82,6 +82,10 @@ namespace Transports
       double sms_tout;
       //! Device response timeout.
       float reply_tout;
+      //! If SIM balance is to be checked at startup
+      bool check_balance;
+      //! Service code used to check SIM balance
+      std::string ussd_balance_code;
     };
 
     struct Task: public DUNE::Tasks::Task
@@ -136,6 +140,14 @@ namespace Transports
         .units(Units::Second)
         .description("Maximum amount of time to wait for SMS send completion");
 
+        param("Check SIM Balance", m_args.check_balance)
+        .defaultValue("false")
+        .description("If SIM balance is to be checked at startup");
+
+        param("USSD Balance Code", m_args.ussd_balance_code)
+        .defaultValue("")
+        .description("USSD code used to check sim card balance");
+
         bind<IMC::Sms>(this);
         bind<IMC::IoEvent>(this);
       }
@@ -161,6 +173,15 @@ namespace Transports
           debug("manufacturer: %s", m_driver->getManufacturer().c_str());
           debug("model: %s", m_driver->getModel().c_str());
           debug("IMEI: %s", m_driver->getIMEI().c_str());
+
+          double balance = m_driver->requestBalance(m_args.ussd_balance_code);
+          if(balance == 0)
+          {
+            setEntityState(IMC::EntityState::ESTA_ERROR,
+                           String::str(DTR("Insufficient balance: %lf Eur"), balance));
+          }
+          else
+            inf(DTR("Current balance: %lf"), balance);
         }
         catch (std::runtime_error& e)
         {

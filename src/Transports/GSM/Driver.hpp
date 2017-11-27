@@ -145,6 +145,52 @@ namespace Transports
         expectOK();
       }
 
+      double
+      requestBalance(const std::string& service_code)
+      {
+        getTask()->debug("Activating USSD codes");
+
+        sendAT("+CUSD=1");
+        expectOK();
+
+        getTask()->debug("Got OK, checking balance +CUSD=1,%s", service_code.c_str());
+
+        sendAT("+CUSD=1," + service_code);
+        expectOK();
+
+        bool reading = true;
+        float balance = -1;
+
+        while(reading)
+        {
+          try
+          {
+            std::string line = readLine();
+            std::vector<std::string> parts;
+
+            String::split(line, " ", parts);
+            for(size_t i = 0; i < parts.size(); i++)
+            {
+              int integer_part;
+              int fractional_part;
+              if(std::sscanf(parts[i].c_str(), "%d,%d", &integer_part, &fractional_part) == 2)
+              {
+                balance = integer_part + (fractional_part/100.0);
+                reading = false;
+                getTask()->inf("Current balance is %f", balance);
+              }
+            }
+          }
+          catch(ReadTimeout e)
+          {
+            reading = false;
+            getTask()->err("Couldn't read SIM balance");
+          }
+        }
+
+        return balance;
+      }
+
     private:
       //! PIN number if needed.
       std::string m_pin;
